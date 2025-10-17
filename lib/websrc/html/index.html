@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Template - Système</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <style>
+      body { padding: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="d-flex justify-content-between align-items-end mb-2">
+        <h1 class="mb-0">Template - Système</h1>
+        <div class="d-flex align-items-center gap-2">
+          <div id="meta" class="text-muted small"></div>
+          <button id="btn-logout" class="btn btn-sm btn-outline-secondary" style="display:none">Déconnexion</button>
+        </div>
+      </div>
+      <hr class="mb-4">
+      <div id="login-card" class="card mb-4">
+        <div class="card-body">
+          <form id="login-form" class="row g-2">
+            <div class="col-auto">
+              <input id="password" type="password" class="form-control" placeholder="Mot de passe" autocomplete="current-password">
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-primary" type="submit">Se connecter</button>
+            </div>
+          </form>
+          <div id="login-msg" class="text-danger small mt-2" style="display:none"></div>
+        </div>
+      </div>
+
+      <div id="net-card" class="card mb-4" style="display:none">
+        <div class="card-header">Réseau</div>
+        <div class="card-body">
+          <form id="net-form" class="row g-3 align-items-end">
+            <div class="col-sm-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="net-dhcp">
+                <label class="form-check-label" for="net-dhcp">DHCP</label>
+              </div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+              <label class="form-label">IP</label>
+              <input id="net-ip" type="text" class="form-control" placeholder="192.168.1.100">
+            </div>
+            <div class="col-sm-6 col-md-3">
+              <label class="form-label">Masque</label>
+              <input id="net-mask" type="text" class="form-control" placeholder="255.255.255.0">
+            </div>
+            <div class="col-sm-6 col-md-3">
+              <label class="form-label">Passerelle</label>
+              <input id="net-gw" type="text" class="form-control" placeholder="192.168.1.1">
+            </div>
+            <div class="col-sm-6 col-md-3">
+              <label class="form-label">DNS</label>
+              <input id="net-dns" type="text" class="form-control" placeholder="192.168.1.1">
+            </div>
+            <div class="col-12 d-flex gap-2">
+              <button id="btn-save-net" class="btn btn-outline-primary" type="submit">Enregistrer</button>
+              <button id="btn-reboot" class="btn btn-outline-danger" type="button">Redémarrer</button>
+              <div id="net-msg" class="small"></div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="mqtt-card" class="card mb-4" style="display:none">
+        <div class="card-header">MQTT</div>
+        <div class="card-body">
+          <form id="mqtt-form" class="row g-3 align-items-end">
+            <div class="col-sm-6 col-md-4">
+              <label class="form-label">Hôte</label>
+              <input id="mqtt-host" type="text" class="form-control" placeholder="192.168.1.10">
+            </div>
+            <div class="col-sm-6 col-md-2">
+              <label class="form-label">Port</label>
+              <input id="mqtt-port" type="number" class="form-control" placeholder="1883" value="1883">
+            </div>
+            <div class="col-sm-6 col-md-2">
+              <label class="form-label">Client ID</label>
+              <input id="mqtt-cid" type="text" class="form-control" placeholder="esp32eth">
+            </div>
+            <div class="col-sm-6 col-md-2">
+              <label class="form-label">Base topic</label>
+              <input id="mqtt-base" type="text" class="form-control" placeholder="device">
+            </div>
+            <div class="col-sm-6 col-md-2">
+              <label class="form-label">Utilisateur</label>
+              <input id="mqtt-user" type="text" class="form-control" placeholder="">
+            </div>
+            <div class="col-sm-6 col-md-4">
+              <label class="form-label">Mot de passe</label>
+              <input id="mqtt-pass" type="password" class="form-control" placeholder="">
+            </div>
+            <div class="col-12 d-flex gap-2">
+              <button id="btn-save-mqtt" class="btn btn-outline-primary" type="submit">Enregistrer</button>
+              <div id="mqtt-msg" class="small"></div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="pwd-card" class="card mb-4" style="display:none">
+        <div class="card-header">Changer le mot de passe</div>
+        <div class="card-body">
+          <form id="pwd-form" class="row g-2 align-items-center">
+            <div class="col-auto">
+              <input id="oldPassword" type="password" class="form-control" placeholder="Ancien" autocomplete="current-password">
+            </div>
+            <div class="col-auto">
+              <input id="newPassword" type="password" class="form-control" placeholder="Nouveau" autocomplete="new-password">
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-primary" type="submit">Mettre à jour</button>
+            </div>
+          </form>
+          <div id="pwd-msg" class="small mt-2"></div>
+        </div>
+      </div>
+
+      <div id="ota-card" class="card mb-4" style="display:none">
+        <div class="card-header">Mise à jour du firmware (OTA)</div>
+        <div class="card-body">
+          <form id="ota-form" class="row g-2 align-items-center">
+            <div class="col-auto">
+              <input id="ota-file" type="file" class="form-control" accept=".bin,.bin.gz,application/octet-stream">
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-danger" type="submit">Envoyer et redémarrer</button>
+            </div>
+          </form>
+          <div id="ota-msg" class="small mt-2"></div>
+        </div>
+      </div>
+
+      <div id="debug-card" class="card mb-4" style="display:none">
+        <div class="card-header">Debug I/O</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <h6 class="mb-2">Entrées</h6>
+              <div class="table-responsive">
+                <table id="tbl-ins" class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Pin</th>
+                      <th class="text-end">État</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <h6 class="mb-2">Sorties</h6>
+              <div class="table-responsive">
+                <table id="tbl-outs" class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Pin</th>
+                      <th class="text-end">Commande</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Journal</div>
+        <div class="card-body">
+          <pre id="log" class="mb-0" style="min-height:120px"></pre>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/jquery.min.js"></script>
+    <script src="/js/bootstrap.min.js"></script>
+    <script>
+      $.ajaxSetup({
+        cache: false,
+        statusCode: {
+          401: function(){
+            setToken('');
+            refreshUI();
+            log('Session expirée ou non autorisée: veuillez vous reconnecter');
+          }
+        }
+      });
+      function log(msg){
+        const $log = $('#log');
+        $log.text($log.text() + (msg + "\n"));
+      }
+      function token(){ return localStorage.getItem('jwt') || ''; }
+      function setToken(t){ if(t) localStorage.setItem('jwt', t); else localStorage.removeItem('jwt'); }
+      function authHeaders(){
+        const t = token();
+        return t ? { 'Authorization': 'Bearer ' + t } : {};
+      }
+      // Aucun contrôle spécifique d'action dans le template
+
+      let pollTimer = 0;
+      function refreshUI(){
+        const has = !!token();
+        $('#login-card').toggle(!has);
+        $('#net-card').toggle(has);
+        $('#mqtt-card').toggle(has);
+        $('#pwd-card').toggle(has);
+        $('#ota-card').toggle(has);
+        $('#btn-logout').toggle(has);
+        $('#debug-card').toggle(has);
+        if(has){
+          startPolling();
+          loadIns();
+          loadOuts();
+        } else {
+          if(pollTimer) clearInterval(pollTimer);
+          pollTimer = 0;
+          $('#tbl-ins tbody').empty();
+          $('#tbl-outs tbody').empty();
+        }
+      }
+
+      $('#btn-logout').on('click', function(){ setToken(''); if(pollTimer) clearInterval(pollTimer); pollTimer = 0; refreshUI(); log('Déconnecté'); });
+
+      $('#login-form').on('submit', function(e){
+        e.preventDefault();
+        const password = $('#password').val();
+        $('#login-msg').hide();
+        $.ajax({
+          url: '/api/login',
+          method: 'POST',
+          data: JSON.stringify({ password }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+        .done(function(r){ setToken(r.token); refreshUI(); startPolling(); loadIns(); loadOuts(); log('Connecté'); })
+        .fail(function(xhr){ $('#login-msg').text('Connexion échouée').show(); log('Login KO'); });
+      });
+
+      $('#pwd-form').on('submit', function(e){
+        e.preventDefault();
+        const oldPassword = $('#oldPassword').val();
+        const newPassword = $('#newPassword').val();
+        $('#pwd-msg').removeClass('text-danger text-success').text('');
+        $.ajax({
+          url: '/api/password',
+          method: 'POST',
+          data: JSON.stringify({ oldPassword, newPassword }),
+          headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders())
+        })
+        .done(function(){ $('#pwd-msg').addClass('text-success').text('Mot de passe modifié'); })
+        .fail(function(xhr){ $('#pwd-msg').addClass('text-danger').text('Erreur: ' + xhr.status); });
+      });
+
+      $('#ota-form').on('submit', function(e){
+        e.preventDefault();
+        const file = $('#ota-file')[0].files[0];
+        const $msg = $('#ota-msg');
+        $msg.removeClass('text-danger text-success').text('');
+        if(!file){ $msg.addClass('text-danger').text('Choisissez un fichier .bin'); return; }
+        const headers = authHeaders();
+        // Ne pas définir Content-Type pour laisser le navigateur définir multipart/form-data
+        const form = new FormData();
+        form.append('firmware', file, file.name);
+        log('Envoi firmware... (' + file.name + ', ' + file.size + ' octets)');
+        fetch('/api/ota', { method: 'POST', headers, body: file })
+          .then(async (r)=>{
+            const txt = await r.text();
+            try{ return { ok:r.ok, json: JSON.parse(txt) }; }catch(_){ return { ok:r.ok, json: { raw: txt } }; }
+          })
+          .then(res=>{
+            if(res.ok){
+              $msg.addClass('text-success').text('Mise à jour envoyée, redémarrage en cours...');
+              log('OTA OK, reboot...');
+              setTimeout(()=>{ location.reload(); }, 5000);
+            } else {
+              $msg.addClass('text-danger').text('Échec OTA: ' + JSON.stringify(res.json));
+              log('OTA KO: ' + JSON.stringify(res.json));
+            }
+          })
+          .catch(err=>{ $msg.addClass('text-danger').text('Erreur: ' + err); log('OTA err ' + err); });
+      });
+
+      // Ping (auth requis) ou message
+      function tryPing(){
+        $.ajax({ url: '/api/ping', headers: authHeaders() })
+          .done(function(){ log('Ping OK'); })
+          .fail(function(xhr){
+            if(xhr && xhr.status === 401){ setToken(''); refreshUI(); }
+            log('Ping KO (non connecté)');
+          });
+      }
+
+      function loadMeta(){
+        $.ajax({ url: '/api/meta' })
+          .done(function(r){
+            const v = r && r.version ? r.version : 'n/a';
+            const b = r && r.build ? r.build : '';
+            $('#meta').text('Version ' + v + (b ? (' — ' + b) : ''));
+          })
+          .fail(function(){ $('#meta').text('Version inconnue'); });
+      }
+
+      // Chargement & sauvegarde Réseau
+      function loadNetwork(){
+        if(!token()) return;
+        $.ajax({ url:'/api/network', headers: authHeaders() })
+          .done(function(r){
+            const dh = !!r.dhcp; $('#net-dhcp').prop('checked', dh);
+            $('#net-ip').val(r.ip||'');
+            $('#net-mask').val(r.mask||'');
+            $('#net-gw').val(r.gw||'');
+            $('#net-dns').val(r.dns||'');
+          });
+      }
+      $('#net-form').on('submit', function(e){
+        e.preventDefault();
+        const dhcp = $('#net-dhcp').is(':checked');
+        const payload = dhcp ? { dhcp:true } : {
+          dhcp:false,
+          ip: $('#net-ip').val(),
+          mask: $('#net-mask').val(),
+          gw: $('#net-gw').val(),
+          dns: $('#net-dns').val()
+        };
+        const $msg = $('#net-msg');
+        $msg.removeClass('text-danger text-success').text('');
+        fetch('/api/network', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(payload) })
+          .then(async r=>({ ok:r.ok, txt: await r.text() }))
+          .then(res=>{ if(res.ok){ $msg.addClass('text-success').text('Réseau enregistré'); } else { $msg.addClass('text-danger').text('Erreur: '+ res.txt); } })
+          .catch(e=>{ $msg.addClass('text-danger').text('Erreur: ' + e); });
+      });
+      $('#btn-reboot').on('click', function(){
+        fetch('/api/reboot', { method:'POST', headers: authHeaders() })
+          .then(()=>{ log('Redémarrage...'); setTimeout(()=>location.reload(), 5000); })
+          .catch(()=>{});
+      });
+
+      // Chargement & sauvegarde MQTT
+      function loadMqtt(){
+        if(!token()) return;
+        $.ajax({ url:'/api/mqtt', headers: authHeaders() })
+          .done(function(r){
+            $('#mqtt-host').val(r.host||'');
+            $('#mqtt-port').val(r.port||1883);
+            $('#mqtt-user').val(r.username||'');
+            $('#mqtt-pass').val('');
+            $('#mqtt-cid').val(r.clientId||'esp32eth');
+            $('#mqtt-base').val(r.baseTopic||'device');
+          });
+      }
+      $('#mqtt-form').on('submit', function(e){
+        e.preventDefault();
+        const payload = {
+          host: $('#mqtt-host').val(),
+          port: parseInt($('#mqtt-port').val()||'1883',10),
+          username: $('#mqtt-user').val(),
+          password: $('#mqtt-pass').val(),
+          clientId: $('#mqtt-cid').val(),
+          baseTopic: $('#mqtt-base').val()
+        };
+        const $msg = $('#mqtt-msg');
+        $msg.removeClass('text-danger text-success').text('');
+        fetch('/api/mqtt', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(payload) })
+          .then(async r=>({ ok:r.ok, txt: await r.text() }))
+          .then(res=>{ if(res.ok){ $msg.addClass('text-success').text('MQTT enregistré'); } else { $msg.addClass('text-danger').text('Erreur: '+ res.txt); } })
+          .catch(e=>{ $msg.addClass('text-danger').text('Erreur: ' + e); });
+      });
+      refreshUI();
+      tryPing();
+      loadMeta();
+      loadNetwork();
+      loadMqtt();
+      // Debug I/O
+      function renderIns(list){
+        const $t = $('#tbl-ins tbody');
+        $t.empty();
+        list.forEach(function(it){
+          const v = it.value ? '1' : '0';
+          const badge = it.value ? '<span class="badge bg-success">HAUT</span>' : '<span class="badge bg-secondary">BAS</span>';
+          $t.append('<tr><td>'+it.name+'</td><td>'+it.pin+'</td><td class="text-end">'+badge+'</td></tr>');
+        });
+      }
+      function renderOuts(list){
+        const $t = $('#tbl-outs tbody');
+        $t.empty();
+        list.forEach(function(it){
+          const checked = it.value ? 'checked' : '';
+          const row = '<tr>'+
+                      '<td>'+it.name+'</td>'+
+                      '<td>'+it.pin+'</td>'+
+                      '<td class="text-end">'+
+                        '<div class="form-check form-switch d-inline-block">'+
+                          '<input class="form-check-input out-toggle" type="checkbox" data-pin="'+it.pin+'" '+checked+' />'+
+                        '</div>'+
+                      '</td>'+
+                    '</tr>';
+          $t.append(row);
+        });
+      }
+      function loadIns(){ if(!token()) return; $.ajax({ url:'/api/debug/ins', headers: authHeaders() }).done(renderIns); }
+      function loadOuts(){ if(!token()) return; $.ajax({ url:'/api/debug/outs', headers: authHeaders() }).done(renderOuts); }
+      $(document).on('change', '.out-toggle', function(){
+        const pin = parseInt($(this).data('pin'), 10);
+        const value = $(this).is(':checked');
+        fetch('/api/debug/out', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ pin, value }) })
+          .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+          .then(()=>{ loadOuts(); })
+          .catch(e=>{ log('Erreur set out: '+e); loadOuts(); });
+      });
+      function startPolling(){
+        if(pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(function(){ loadIns(); loadOuts(); }, 1000);
+      }
+      if(token()) startPolling();
+    </script>
+  </body>
+  </html>
+
+
+
