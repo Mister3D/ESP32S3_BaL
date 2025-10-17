@@ -15,26 +15,10 @@ struct Device {
     int pin;
 };
 
-// Tableau d'exemple listant quelques périphériques avec leurs pins associés
-Device debugDevicesIn[] = {
-    { "PIN_IN_BOUTON", 41},
-    { "PIN_IN_PORTE_RUE", 40},
-    { "PIN_IN_PORTE_TERRAIN", 17},
-    { "PIN_IN_FENTE", 16},
-    { "PIN_IN_CLE", 15}
-};
-const int deviceInCount = sizeof(debugDevicesIn) / sizeof(debugDevicesIn[0]);
-
-Device debugDevicesOut[] = {
-    { "PIN_OUT_GACHE", 1},
-    { "PIN_OUT_LUMIERE", 2},
-};
-const int deviceOutCount = sizeof(debugDevicesOut) / sizeof(debugDevicesOut[0]);
-
 
 #define DEFAULT_PASSWORD "1234"
 // Numéro de version du firmware
-#define FW_VERSION "0.0.1"
+#define FW_VERSION "0.0.2"
 // Identifiant de build accessible partout (utilisé par MQTT et /api/meta)
 #define K_BUILD_ID (__DATE__ " " __TIME__)
 
@@ -593,106 +577,6 @@ static void handleApiEx(EthernetClient &client, const String &fullPath, const St
         return;
     }
 
-    // ---------- Debug IO ----------
-    if (fullPath.startsWith("/api/debug/ins")) {
-        // Renvoie l'état des entrées digitales
-        String resp = "[";
-        for (int i = 0; i < deviceInCount; ++i) {
-            int val = digitalRead(debugDevicesIn[i].pin);
-            if (i) resp += ',';
-            resp += String("{\"name\":\"") + debugDevicesIn[i].name + "\",\"pin\":" + String(debugDevicesIn[i].pin) + ",\"value\":" + (val ? "1" : "0") + "}";
-        }
-        resp += "]";
-        sendJson(client, 200, "OK", resp, true);
-        return;
-    }
-    if (fullPath.startsWith("/api/debug/outs")) {
-        // Renvoie l'état des sorties digitales
-        String resp = "[";
-        for (int i = 0; i < deviceOutCount; ++i) {
-            int val = digitalRead(debugDevicesOut[i].pin);
-            if (i) resp += ',';
-            resp += String("{\"name\":\"") + debugDevicesOut[i].name + "\",\"pin\":" + String(debugDevicesOut[i].pin) + ",\"value\":" + (val ? "1" : "0") + "}";
-        }
-        resp += "]";
-        sendJson(client, 200, "OK", resp, true);
-        return;
-    }
-    if (fullPath.startsWith("/api/debug/out")) {
-        if (method != "POST") {
-            String resp = "{\"error\":\"method not allowed\"}";
-            sendJson(client, 405, "Method Not Allowed", resp);
-            return;
-        }
-        // parse payload {"pin":<int> or "name":"...", "value":true/false}
-        auto findInt = [&](const char* key, long defv) -> long {
-            String k = String("\"") + key + "\"";
-            int i = bodyIn.indexOf(k);
-            if (i < 0) return defv;
-            int co = bodyIn.indexOf(':', i);
-            if (co < 0) return defv;
-            int end = bodyIn.indexOf(',', co + 1);
-            int end2 = bodyIn.indexOf('}', co + 1);
-            if (end < 0 || (end2 >= 0 && end2 < end)) end = end2;
-            String num = bodyIn.substring(co + 1, end);
-            num.trim();
-            return num.toInt();
-        };
-        auto findStr = [&](const char* key) -> String {
-            String k = String("\"") + key + "\"";
-            int i = bodyIn.indexOf(k);
-            if (i < 0) return String("");
-            int co = bodyIn.indexOf(':', i);
-            int q1 = bodyIn.indexOf('"', co + 1);
-            int q2 = bodyIn.indexOf('"', q1 + 1);
-            if (co >= 0 && q1 >= 0 && q2 > q1) return bodyIn.substring(q1 + 1, q2);
-            return String("");
-        };
-        auto findBool = [&](const char* key, bool defv) -> bool {
-            String k = String("\"") + key + "\"";
-            int i = bodyIn.indexOf(k);
-            if (i < 0) return defv;
-            int co = bodyIn.indexOf(':', i);
-            if (co < 0) return defv;
-            String v = bodyIn.substring(co + 1);
-            v.trim();
-            return v.startsWith("true") || v.startsWith("1");
-        };
-
-        int targetPin = -1;
-        long pinFromPayload = findInt("pin", -1);
-        if (pinFromPayload >= 0) targetPin = (int)pinFromPayload;
-        String nameFromPayload = findStr("name");
-        if (targetPin < 0 && nameFromPayload.length() > 0) {
-            for (int i = 0; i < deviceOutCount; ++i) {
-                if (String(debugDevicesOut[i].name) == nameFromPayload) {
-                    targetPin = debugDevicesOut[i].pin;
-                    break;
-                }
-            }
-        }
-        bool value = findBool("value", false);
-        if (targetPin < 0) {
-            String resp = "{\"error\":\"missing pin or name\"}";
-            sendJson(client, 400, "Bad Request", resp);
-            return;
-        }
-        // Vérifie que le pin fait partie de debugDevicesOut
-        bool allowed = false;
-        for (int i = 0; i < deviceOutCount; ++i) {
-            if (debugDevicesOut[i].pin == targetPin) { allowed = true; break; }
-        }
-        if (!allowed) {
-            String resp = "{\"error\":\"pin not allowed\"}";
-            sendJson(client, 400, "Bad Request", resp);
-            return;
-        }
-        digitalWrite(targetPin, value ? HIGH : LOW);
-        String resp = String("{\"pin\":" ) + String(targetPin) + ",\"value\":" + (value ? "1" : "0") + "}";
-        sendJson(client, 200, "OK", resp, true);
-        return;
-    }
-
     // ---------- Réseau ----------
     if (fullPath.startsWith("/api/network")) {
         if (method == "GET") {
@@ -1127,15 +1011,6 @@ void setup()
     loadMqttSettings();
     mqttClient.setCallback(callback);
     Serial.println("MQTT ready (waiting for configuration if host empty)");
-
-    // Initialisation GPIO pour debugDevicesIn/Out
-    for (int i = 0; i < deviceInCount; ++i) {
-        pinMode(debugDevicesIn[i].pin, INPUT_PULLUP);
-    }
-    for (int i = 0; i < deviceOutCount; ++i) {
-        pinMode(debugDevicesOut[i].pin, OUTPUT);
-        digitalWrite(debugDevicesOut[i].pin, LOW);
-    }
 }
 
 void loop() {

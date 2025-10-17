@@ -217,7 +217,6 @@
         $('#pwd-card').toggle(has);
         $('#ota-card').toggle(has);
         $('#btn-logout').toggle(has);
-        $('#debug-card').toggle(has);
         if(has){
           startPolling();
           loadIns();
@@ -380,48 +379,12 @@
       loadMeta();
       loadNetwork();
       loadMqtt();
-      // Debug I/O
-      function renderIns(list){
-        const $t = $('#tbl-ins tbody');
-        $t.empty();
-        list.forEach(function(it){
-          const v = it.value ? '1' : '0';
-          const badge = it.value ? '<span class="badge bg-success">HAUT</span>' : '<span class="badge bg-secondary">BAS</span>';
-          $t.append('<tr><td>'+it.name+'</td><td>'+it.pin+'</td><td class="text-end">'+badge+'</td></tr>');
-        });
-      }
-      function renderOuts(list){
-        const $t = $('#tbl-outs tbody');
-        $t.empty();
-        list.forEach(function(it){
-          const checked = it.value ? 'checked' : '';
-          const row = '<tr>'+
-                      '<td>'+it.name+'</td>'+
-                      '<td>'+it.pin+'</td>'+
-                      '<td class="text-end">'+
-                        '<div class="form-check form-switch d-inline-block">'+
-                          '<input class="form-check-input out-toggle" type="checkbox" data-pin="'+it.pin+'" '+checked+' />'+
-                        '</div>'+
-                      '</td>'+
-                    '</tr>';
-          $t.append(row);
-        });
-      }
-      function loadIns(){ if(!token()) return; $.ajax({ url:'/api/debug/ins', headers: authHeaders() }).done(renderIns); }
-      function loadOuts(){ if(!token()) return; $.ajax({ url:'/api/debug/outs', headers: authHeaders() }).done(renderOuts); }
       $(document).on('change', '.out-toggle', function(){
         const pin = parseInt($(this).data('pin'), 10);
         const value = $(this).is(':checked');
         fetch('/api/debug/out', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ pin, value }) })
           .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
-          .then(()=>{ loadOuts(); })
-          .catch(e=>{ log('Erreur set out: '+e); loadOuts(); });
       });
-      function startPolling(){
-        if(pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(function(){ loadIns(); loadOuts(); }, 1000);
-      }
-      if(token()) startPolling();
     </script>
   </body>
   </html>
