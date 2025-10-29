@@ -1,4 +1,11 @@
-Import("env")
+try:
+    Import("env")  # type: ignore
+except Exception:
+    # Exécution hors PlatformIO: fournir un env minimal
+    import types
+    import pathlib
+    _proj_dir = str(pathlib.Path(__file__).resolve().parents[1])
+    env = {"PROJECT_DIR": _proj_dir}  # type: ignore
 
 import os
 import base64

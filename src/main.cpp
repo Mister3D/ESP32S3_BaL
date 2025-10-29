@@ -16,6 +16,40 @@ struct Device {
 };
 
 
+// --------------------- Projet BaL: Définition des broches et délais ---------------------
+#define PIN_IN_BOUTON          41
+#define PIN_IN_PORTE_RUE       40
+#define PIN_IN_PORTE_TERRAIN   17
+#define PIN_IN_FENTE           16
+#define PIN_IN_CLE             15
+#define PIN_OUT_GACHE          1
+#define PIN_OUT_LUMIERE        2
+
+// Les entrées sont en pull-up (actives selon câblage). Les règles ci-dessous
+// considèrent qu'un état HAUT signifie « actif/ouvert » tel que décrit dans le README.
+
+// Délais (ms)
+#define DELAY_GACHE          1200
+#define DELAY_AWAIT_GACHE    5000
+
+// État runtime
+static volatile unsigned long g_gacheActiveUntilMs = 0;
+static volatile unsigned long g_gacheCooldownUntilMs = 0;
+static bool g_forceLight = false; // Commande manuelle lumière via API/UI
+static volatile bool g_rebootRequested = false;
+static volatile unsigned long g_rebootAtMs = 0;
+
+// Mémorisation niveaux précédents pour détection d'edges
+static int g_prevBouton = -1;
+static int g_prevCle = -1;
+static int g_prevRue = -1;
+static int g_prevTerrain = -1;
+static int g_prevFente = -1;
+
+// Prototype pour permettre l'appel depuis d'autres fonctions avant sa définition
+static void openDore();
+
+
 #define DEFAULT_PASSWORD "1234"
 // Numéro de version du firmware
 #define FW_VERSION "0.0.2"
@@ -52,6 +86,18 @@ EthernetClient ethClient;
 PubSubClient mqttClient(ethClient);
 ESP32EthernetServerFix httpServer(80);
 
+// ---------- MQTT settings placés avant callback pour visibilité ----------
+struct MqttSettings {
+    String host;
+    uint16_t port;
+    String username;
+    String password;
+    String clientId;
+    String baseTopic; // ex: "device"
+};
+static Preferences mqttNvs;
+static MqttSettings g_mqtt;
+
 // Variables for periodic publishing (heartbeat)
 unsigned long lastMsg = 0;
 const long interval = 1000;   // 1 second
@@ -66,49 +112,68 @@ void callback(char *topic, uint8_t *payload,  unsigned int length)
     msg.trim();
     String t = String(topic);
     Serial.print("MQTT in ["); Serial.print(t); Serial.print("] "); Serial.println(msg);
-    // Template: no project-specific behavior. Users can subscribe to g_mqtt.baseTopic+"/in".
+    // Commande d'ouverture depuis MQTT: baseTopic + "/door/open"
+    String cmdOpen = g_mqtt.baseTopic + "/door/open";
+    if (t == cmdOpen) {
+        String low = msg; low.toLowerCase();
+        if (low == "1" || low == "true" || low == "open" || low == "on") {
+            openDore();
+        }
+        return;
+    }
 }
 
-// MQTT credentials (moved to file-scope to allow reconnection)
-struct MqttSettings {
-    String host;
-    uint16_t port;
-    String username;
-    String password;
-    String clientId;
-    String baseTopic; // ex: "device"
-};
-
-static Preferences mqttNvs;
-static MqttSettings g_mqtt;
+// (déclaration déjà déplacée au-dessus de callback)
 
 static void loadMqttSettings()
 {
-    g_mqtt.host = "";
-    g_mqtt.port = 1883;
-    g_mqtt.username = "";
-    g_mqtt.password = "";
-    g_mqtt.clientId = "esp32eth";
-    g_mqtt.baseTopic = "device";
-    if (mqttNvs.begin("mqtt", false)) {
-        g_mqtt.host = mqttNvs.getString("host", g_mqtt.host);
-        g_mqtt.port = (uint16_t)mqttNvs.getUShort("port", g_mqtt.port);
-        g_mqtt.username = mqttNvs.getString("user", g_mqtt.username);
-        g_mqtt.password = mqttNvs.getString("pass", g_mqtt.password);
-        g_mqtt.clientId = mqttNvs.getString("cid", g_mqtt.clientId);
-        g_mqtt.baseTopic = mqttNvs.getString("base", g_mqtt.baseTopic);
+    // Valeurs par défaut au premier démarrage
+    if (g_mqtt.host.length() == 0 && g_mqtt.clientId.length() == 0 && g_mqtt.baseTopic.length() == 0) {
+        g_mqtt.host = "";
+        g_mqtt.port = 1883;
+        g_mqtt.username = "";
+        g_mqtt.password = "";
+        g_mqtt.clientId = "esp32eth";
+        g_mqtt.baseTopic = "device";
+    }
+    // Lecture NVS en lecture seule
+    if (mqttNvs.begin("mqtt", true)) {
+        String host = mqttNvs.getString("host", g_mqtt.host);
+        uint16_t port = (uint16_t)mqttNvs.getUShort("port", g_mqtt.port);
+        String user = mqttNvs.getString("user", g_mqtt.username);
+        String pass = mqttNvs.getString("pass", g_mqtt.password);
+        String cid  = mqttNvs.getString("cid",  g_mqtt.clientId);
+        String base = mqttNvs.getString("base", g_mqtt.baseTopic);
+        mqttNvs.end();
+        g_mqtt.host = host;
+        g_mqtt.port = port;
+        g_mqtt.username = user;
+        g_mqtt.password = pass;
+        g_mqtt.clientId = cid;
+        g_mqtt.baseTopic = base;
+        Serial.print("MQTT loaded: host="); Serial.print(g_mqtt.host);
+        Serial.print(" port="); Serial.print(g_mqtt.port);
+        Serial.print(" user="); Serial.print(g_mqtt.username);
+        Serial.print(" base="); Serial.println(g_mqtt.baseTopic);
+    } else {
+        Serial.println("MQTT NVS begin failed (read)");
     }
 }
 
 static void saveMqttSettings(const MqttSettings &s)
 {
-    if (!mqttNvs.begin("mqtt", false)) return;
+    if (!mqttNvs.begin("mqtt", false)) {
+        Serial.println("MQTT NVS begin failed (write)");
+        return;
+    }
     mqttNvs.putString("host", s.host);
     mqttNvs.putUShort("port", s.port);
     mqttNvs.putString("user", s.username);
     mqttNvs.putString("pass", s.password);
     mqttNvs.putString("cid", s.clientId);
     mqttNvs.putString("base", s.baseTopic);
+    mqttNvs.end();
+    Serial.println("MQTT settings saved to NVS");
 }
 
 static void ensureMqttConnected()
@@ -143,6 +208,9 @@ static void ensureMqttConnected()
         String metaJson = String("{\"version\":\"") + FW_VERSION + "\",\"build\":\"" + K_BUILD_ID + "\"}";
         String metaTopic = g_mqtt.baseTopic + "/meta";
         mqttClient.publish(metaTopic.c_str(), metaJson.c_str(), true);
+        // S'abonner aux commandes
+        String cmdOpen = g_mqtt.baseTopic + "/door/open";
+        mqttClient.subscribe(cmdOpen.c_str());
         return;
     }
     if (backoffMs < 5000) backoffMs = backoffMs * 2;
@@ -577,6 +645,117 @@ static void handleApiEx(EthernetClient &client, const String &fullPath, const St
         return;
     }
 
+    // ---------- I/O (auth requis) ----------
+    if (fullPath.startsWith("/api/io")) {
+        if (!isAuthorized(headers)) {
+            String resp = "{\"error\":\"unauthorized\"}";
+            sendJson(client, 401, "Unauthorized", resp);
+            return;
+        }
+        if (method == "GET") {
+            int vBouton = digitalRead(PIN_IN_BOUTON);
+            int vCle = digitalRead(PIN_IN_CLE);
+            int vRue = digitalRead(PIN_IN_PORTE_RUE);
+            int vTerrain = digitalRead(PIN_IN_PORTE_TERRAIN);
+            int vFente = digitalRead(PIN_IN_FENTE);
+            int vGache = digitalRead(PIN_OUT_GACHE);
+            int vLight = digitalRead(PIN_OUT_LUMIERE);
+            String resp;
+            resp.reserve(256);
+            resp += "{";
+            resp += "\"ins\":[";
+            resp += "{\"name\":\"PIN_IN_BOUTON\",\"pin\":" + String(PIN_IN_BOUTON) + ",\"value\":" + String(vBouton) + "},";
+            resp += "{\"name\":\"PIN_IN_CLE\",\"pin\":" + String(PIN_IN_CLE) + ",\"value\":" + String(vCle) + "},";
+            resp += "{\"name\":\"PIN_IN_PORTE_RUE\",\"pin\":" + String(PIN_IN_PORTE_RUE) + ",\"value\":" + String(vRue) + "},";
+            resp += "{\"name\":\"PIN_IN_PORTE_TERRAIN\",\"pin\":" + String(PIN_IN_PORTE_TERRAIN) + ",\"value\":" + String(vTerrain) + "},";
+            resp += "{\"name\":\"PIN_IN_FENTE\",\"pin\":" + String(PIN_IN_FENTE) + ",\"value\":" + String(vFente) + "}";
+            resp += "],";
+            resp += "\"outs\":[";
+            resp += "{\"name\":\"PIN_OUT_GACHE\",\"pin\":" + String(PIN_OUT_GACHE) + ",\"value\":" + String(vGache) + "},";
+            resp += "{\"name\":\"PIN_OUT_LUMIERE\",\"pin\":" + String(PIN_OUT_LUMIERE) + ",\"value\":" + String(vLight) + "}";
+            resp += "],";
+            resp += "\"forceLight\":";
+            resp += (g_forceLight ? "true" : "false");
+            resp += "}";
+            sendJson(client, 200, "OK", resp);
+            return;
+        }
+        String resp = "{\"error\":\"method not allowed\"}";
+        sendJson(client, 405, "Method Not Allowed", resp);
+        return;
+    }
+
+    if (fullPath.startsWith("/api/debug/out")) {
+        if (!isAuthorized(headers)) {
+            String resp = "{\"error\":\"unauthorized\"}";
+            sendJson(client, 401, "Unauthorized", resp);
+            return;
+        }
+        if (method != "POST") {
+            String resp = "{\"error\":\"method not allowed\"}";
+            sendJson(client, 405, "Method Not Allowed", resp);
+            return;
+        }
+        auto findInt = [&](const char* key, long defv) -> long {
+            String k = String("\"") + key + "\"";
+            int i = bodyIn.indexOf(k);
+            if (i < 0) return defv;
+            int co = bodyIn.indexOf(':', i);
+            if (co < 0) return defv;
+            int end = bodyIn.indexOf(',', co + 1);
+            int end2 = bodyIn.indexOf('}', co + 1);
+            if (end < 0 || (end2 >= 0 && end2 < end)) end = end2;
+            String num = bodyIn.substring(co + 1, end);
+            num.trim();
+            return num.toInt();
+        };
+        auto findBool = [&](const char* key, bool defv) -> bool {
+            String k = String("\"") + key + "\"";
+            int i = bodyIn.indexOf(k);
+            if (i < 0) return defv;
+            int co = bodyIn.indexOf(':', i);
+            if (co < 0) return defv;
+            String v = bodyIn.substring(co + 1);
+            v.trim();
+            return v.startsWith("true") || v.startsWith("1");
+        };
+        long pin = findInt("pin", -1);
+        bool value = findBool("value", false);
+        if (pin == PIN_OUT_LUMIERE) {
+            g_forceLight = value;
+            digitalWrite(PIN_OUT_LUMIERE, value ? HIGH : LOW);
+            String ok = "{\"ok\":true}";
+            sendJson(client, 200, "OK", ok);
+            return;
+        }
+        if (pin == PIN_OUT_GACHE && value) {
+            openDore();
+            String ok = "{\"ok\":true}";
+            sendJson(client, 200, "OK", ok);
+            return;
+        }
+        String resp = "{\"error\":\"pin not allowed\"}";
+        sendJson(client, 400, "Bad Request", resp);
+        return;
+    }
+
+    if (fullPath.startsWith("/api/door/open")) {
+        if (!isAuthorized(headers)) {
+            String resp = "{\"error\":\"unauthorized\"}";
+            sendJson(client, 401, "Unauthorized", resp);
+            return;
+        }
+        if (method != "POST") {
+            String resp = "{\"error\":\"method not allowed\"}";
+            sendJson(client, 405, "Method Not Allowed", resp);
+            return;
+        }
+        openDore();
+        String ok = "{\"opened\":true}";
+        sendJson(client, 200, "OK", ok);
+        return;
+    }
+
     // ---------- Réseau ----------
     if (fullPath.startsWith("/api/network")) {
         if (method == "GET") {
@@ -644,9 +823,10 @@ static void handleApiEx(EthernetClient &client, const String &fullPath, const St
             String resp = String("{\"host\":\"") + g_mqtt.host +
                           "\",\"port\":" + String(g_mqtt.port) +
                           ",\"username\":\"" + g_mqtt.username +
+                          "\",\"password\":\"" + g_mqtt.password +
                           "\",\"clientId\":\"" + g_mqtt.clientId +
                           "\",\"baseTopic\":\"" + g_mqtt.baseTopic +
-                          "\",\"hasPassword\":" + (g_mqtt.password.length() ? "true" : "false") + "}";
+                          "\"}";
             sendJson(client, 200, "OK", resp);
             return;
         }
@@ -674,6 +854,8 @@ static void handleApiEx(EthernetClient &client, const String &fullPath, const St
                 num.trim();
                 return num.toInt();
             };
+            // Copie actuelle pour comparaison
+            MqttSettings before = g_mqtt;
             MqttSettings s = g_mqtt;
             s.host = findStr("host", s.host);
             s.port = (uint16_t)findInt("port", s.port);
@@ -684,11 +866,21 @@ static void handleApiEx(EthernetClient &client, const String &fullPath, const St
             }
             s.clientId = findStr("clientId", s.clientId);
             s.baseTopic = findStr("baseTopic", s.baseTopic);
+            // Détecte changements
+            bool changed = (s.host != before.host) || (s.port != before.port) ||
+                           (s.username != before.username) || (s.password != before.password) ||
+                           (s.clientId != before.clientId) || (s.baseTopic != before.baseTopic);
+            // Sauvegarde systématique, puis reboot si changé
             saveMqttSettings(s);
             g_mqtt = s;
             mqttClient.disconnect();
-            String resp = "{\"saved\":true}";
+            String resp = String("{\"saved\":true,\"rebooting\":") + (changed ? "true" : "false") + "}";
             sendJson(client, 200, "OK", resp);
+            if (changed) {
+                // Planifie un redémarrage rapide pour appliquer proprement la config
+                g_rebootRequested = true;
+                g_rebootAtMs = millis() + 500UL;
+            }
             return;
         }
         String resp = "{\"error\":\"method not allowed\"}";
@@ -849,6 +1041,28 @@ static void handleApiOtaUpload(EthernetClient &client, const String &method, con
     ESP.restart();
 }
 
+// Définition après les objets MQTT pour éviter les erreurs de portée
+static void openDore()
+{
+    Serial.println("openDore");
+    unsigned long now = millis();
+    // Rollover-safe: si now n'a pas encore atteint g_gacheCooldownUntilMs, la différence signée est négative
+    if ((long)(now - g_gacheCooldownUntilMs) < 0) {
+        return; // Anti-rafale sur la période DELAY_AWAIT_GACHE
+    }
+    // Impulsion active bas sur la gâche
+    digitalWrite(PIN_OUT_GACHE, LOW);
+    g_gacheActiveUntilMs = now + (unsigned long)DELAY_GACHE;
+    g_gacheCooldownUntilMs = now + (unsigned long)DELAY_AWAIT_GACHE;
+
+    // Notification immédiate sur MQTT de l'action d'ouverture
+    if (g_mqtt.host.length() > 0 && mqttClient.connected()) {
+        String topic = g_mqtt.baseTopic + "/action";
+        String payload = String("{\"location\":\"door\",\"action\":\"open\"}");
+        mqttClient.publish(topic.c_str(), payload.c_str());
+    }
+}
+
 static void handleHttpClient(EthernetClient client)
 {
     // Wait for data or timeout (~2s)
@@ -1005,9 +1219,27 @@ void setup()
     Serial.print("IPv4: ");
     Serial.println(Ethernet.localIP());
 
+    // Broches
+    pinMode(PIN_IN_BOUTON, INPUT_PULLUP);
+    pinMode(PIN_IN_PORTE_RUE, INPUT_PULLUP);
+    pinMode(PIN_IN_PORTE_TERRAIN, INPUT_PULLUP);
+    pinMode(PIN_IN_FENTE, INPUT_PULLUP);
+    pinMode(PIN_IN_CLE, INPUT_PULLUP);
+    pinMode(PIN_OUT_GACHE, OUTPUT);
+    pinMode(PIN_OUT_LUMIERE, OUTPUT);
+    digitalWrite(PIN_OUT_GACHE, HIGH);   // repos: inactif (actif bas)
+    digitalWrite(PIN_OUT_LUMIERE, LOW);  // lumière éteinte au démarrage
+
+    // Init états précédents
+    g_prevBouton = digitalRead(PIN_IN_BOUTON);
+    g_prevCle = digitalRead(PIN_IN_CLE);
+    g_prevRue = digitalRead(PIN_IN_PORTE_RUE);
+    g_prevTerrain = digitalRead(PIN_IN_PORTE_TERRAIN);
+    g_prevFente = digitalRead(PIN_IN_FENTE);
+
     httpServer.begin();
 
-    // Charger configuration MQTT et préparer le client
+    // Charger configuration MQTT (depuis NVS si présente) et préparer le client
     loadMqttSettings();
     mqttClient.setCallback(callback);
     Serial.println("MQTT ready (waiting for configuration if host empty)");
@@ -1017,20 +1249,71 @@ void loop() {
     ensureMqttConnected();
     mqttClient.loop();
 
-    unsigned long now = millis();
-    if (now - lastMsg > 1000) {
-        lastMsg = now;
-        // Heartbeat MQTT générique si activé
-        if (g_mqtt.host.length() > 0 && mqttClient.connected()) {
-            String t = g_mqtt.baseTopic + "/uptime";
-            String v = String(now / 1000UL);
-            mqttClient.publish(t.c_str(), v.c_str(), true);
+    // Suppression du heartbeat MQTT périodique (pas de spam sur /uptime)
+
+    // Gestion temporisation gâche (rollover-safe)
+    if (g_gacheActiveUntilMs != 0) {
+        unsigned long now2 = millis();
+        if ((long)(now2 - g_gacheActiveUntilMs) >= 0) {
+            digitalWrite(PIN_OUT_GACHE, HIGH); // fin d'impulsion
+            g_gacheActiveUntilMs = 0;
+        } else {
+            digitalWrite(PIN_OUT_GACHE, LOW);
         }
     }
+
+    // Lecture entrées et détection d'edges
+    int vBouton = digitalRead(PIN_IN_BOUTON);
+    int vCle = digitalRead(PIN_IN_CLE);
+    int vRue = digitalRead(PIN_IN_PORTE_RUE);
+    int vTerrain = digitalRead(PIN_IN_PORTE_TERRAIN);
+    int vFente = digitalRead(PIN_IN_FENTE);
+
+    // Déclenchement porte si bouton ou clé passent à BAS (actif bas)
+    if (g_prevBouton != -1 && vBouton != g_prevBouton && vBouton == LOW) {
+        openDore();
+    }
+    if (g_prevCle != -1 && vCle != g_prevCle && vCle == LOW) {
+        openDore();
+    }
+
+    // Publications MQTT sur changements d'états
+    auto publishIfChanged = [&](const char* location, int prev, int nowv){
+        if (g_mqtt.host.length() == 0 || !mqttClient.connected()) return;
+        if (prev == -1 || nowv == prev) return;
+        String topic = g_mqtt.baseTopic + "/action";
+        String payload = String("{\"location\":\"") + location + "\",\"action\":\"" + (nowv == HIGH ? "open" : "close") + "\"}";
+        mqttClient.publish(topic.c_str(), payload.c_str());
+    };
+    publishIfChanged("street", g_prevRue, vRue);
+    publishIfChanged("house", g_prevTerrain, vTerrain);
+    publishIfChanged("slot", g_prevFente, vFente);
+
+    // MàJ états précédents
+    g_prevBouton = vBouton;
+    g_prevCle = vCle;
+    g_prevRue = vRue;
+    g_prevTerrain = vTerrain;
+    g_prevFente = vFente;
+
+    // Logique lumière: on si une des portes est ouverte OU forçage manuel
+    bool autoLight = (vRue == HIGH) || (vTerrain == HIGH);
+    bool wantLight = g_forceLight || autoLight;
+    digitalWrite(PIN_OUT_LUMIERE, wantLight ? HIGH : LOW);
 
     // Handle HTTP client connections
     EthernetClient httpClient = httpServer.available();
     if (httpClient) {
         handleHttpClient(httpClient);
+    }
+
+    // Reboot différé si demandé (laisse le temps à la réponse HTTP d'être envoyée)
+    if (g_rebootRequested) {
+        unsigned long now3 = millis();
+        if ((long)(now3 - g_rebootAtMs) >= 0) {
+            g_rebootRequested = false;
+            Serial.println("Rebooting to apply MQTT settings...");
+            ESP.restart();
+        }
     }
 }

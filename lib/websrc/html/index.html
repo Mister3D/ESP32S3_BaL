@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Template - Système</title>
+    <title>BaL - Contrôle</title>
     <link rel="stylesheet" href="/css/bootstrap.min.css">
     <style>
       body { padding: 20px; }
@@ -12,7 +12,7 @@
   <body>
     <div class="container">
       <div class="d-flex justify-content-between align-items-end mb-2">
-        <h1 class="mb-0">Template - Système</h1>
+        <h1 class="mb-0">BaL — Contrôle</h1>
         <div class="d-flex align-items-center gap-2">
           <div id="meta" class="text-muted small"></div>
           <button id="btn-logout" class="btn btn-sm btn-outline-secondary" style="display:none">Déconnexion</button>
@@ -142,7 +142,7 @@
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <h6 class="mb-2">Entrées</h6>
+              <h6 class="mb-2">Statut des entrées</h6>
               <div class="table-responsive">
                 <table id="tbl-ins" class="table table-sm align-middle">
                   <thead>
@@ -164,6 +164,7 @@
                     <tr>
                       <th>Nom</th>
                       <th>Pin</th>
+                      <th>État</th>
                       <th class="text-end">Commande</th>
                     </tr>
                   </thead>
@@ -217,10 +218,10 @@
         $('#pwd-card').toggle(has);
         $('#ota-card').toggle(has);
         $('#btn-logout').toggle(has);
+        $('#debug-card').toggle(has);
         if(has){
           startPolling();
-          loadIns();
-          loadOuts();
+          loadIo();
         } else {
           if(pollTimer) clearInterval(pollTimer);
           pollTimer = 0;
@@ -241,7 +242,7 @@
           data: JSON.stringify({ password }),
           headers: { 'Content-Type': 'application/json' }
         })
-        .done(function(r){ setToken(r.token); refreshUI(); startPolling(); loadIns(); loadOuts(); log('Connecté'); })
+        .done(function(r){ setToken(r.token); refreshUI(); startPolling(); loadIo(); log('Connecté'); })
         .fail(function(xhr){ $('#login-msg').text('Connexion échouée').show(); log('Login KO'); });
       });
 
@@ -352,7 +353,7 @@
             $('#mqtt-host').val(r.host||'');
             $('#mqtt-port').val(r.port||1883);
             $('#mqtt-user').val(r.username||'');
-            $('#mqtt-pass').val('');
+            $('#mqtt-pass').val(r.password||'');
             $('#mqtt-cid').val(r.clientId||'esp32eth');
             $('#mqtt-base').val(r.baseTopic||'device');
           });
@@ -370,10 +371,99 @@
         const $msg = $('#mqtt-msg');
         $msg.removeClass('text-danger text-success').text('');
         fetch('/api/mqtt', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(payload) })
-          .then(async r=>({ ok:r.ok, txt: await r.text() }))
-          .then(res=>{ if(res.ok){ $msg.addClass('text-success').text('MQTT enregistré'); } else { $msg.addClass('text-danger').text('Erreur: '+ res.txt); } })
+          .then(async r=>({ ok:r.ok, json: await r.json().catch(()=>({})) }))
+          .then(res=>{
+            if(res.ok){
+              const rebooting = !!(res.json && res.json.rebooting);
+              if(rebooting){
+                $msg.addClass('text-success').text('MQTT enregistré — redémarrage...');
+                setTimeout(()=>{ location.reload(); }, 5000);
+              } else {
+                $msg.addClass('text-success').text('MQTT enregistré');
+              }
+            } else {
+              $msg.addClass('text-danger').text('Erreur: '+ JSON.stringify(res.json||{}));
+            }
+          })
           .catch(e=>{ $msg.addClass('text-danger').text('Erreur: ' + e); });
       });
+      function loadIo(){
+        if(!token()) return;
+        fetch('/api/io', { headers: authHeaders() })
+          .then(async r=>({ ok:r.ok, json: await r.json().catch(()=>({})) }))
+          .then(res=>{
+            if(!res.ok) return;
+            const io = res.json || {};
+            const $ins = $('#tbl-ins tbody').empty();
+            const nameMap = {
+              'PIN_IN_BOUTON': 'Bouton',
+              'PIN_IN_CLE': 'Clé',
+              'PIN_IN_PORTE_RUE': 'Porte rue',
+              'PIN_IN_PORTE_TERRAIN': 'Porte terrain',
+              'PIN_IN_FENTE': 'Fente'
+            };
+            (io.ins||[]).forEach(row=>{
+              const tr = $('<tr>');
+              const nice = nameMap[row.name] || row.name;
+              let text = String(row.value);
+              let cls = 'bg-secondary';
+              if(/PORTE|FENTE/.test(row.name)){
+                const open = !!row.value;
+                text = open ? 'Ouverte' : 'Fermée';
+                cls = open ? 'bg-success' : 'bg-secondary';
+              } else if(/BOUTON|CLE/.test(row.name)){
+                // Entrées actives bas: LOW = actif, HIGH = inactif
+                const active = !row.value;
+                text = active ? 'Actif' : 'Inactif';
+                cls = active ? 'bg-primary' : 'bg-secondary';
+              }
+              tr.append($('<td>').text(nice));
+              tr.append($('<td>').text(row.pin));
+              tr.append($('<td class="text-end">').append($('<span class="badge rounded-pill">').addClass(cls).text(text)));
+              $ins.append(tr);
+            });
+            const $outs = $('#tbl-outs tbody').empty();
+            const outNameMap = {
+              'PIN_OUT_GACHE': 'Gâche',
+              'PIN_OUT_LUMIERE': 'Lumière'
+            };
+            (io.outs||[]).forEach(row=>{
+              const tr = $('<tr>');
+              const nice = outNameMap[row.name] || row.name;
+              tr.append($('<td>').text(nice));
+              tr.append($('<td>').text(row.pin));
+              // État lisible
+              let stateText = '';
+              if(row.name === 'PIN_OUT_GACHE'){
+                // Sortie active bas: LOW = Active (impulsion), HIGH = Repos
+                stateText = (row.value ? 'Repos' : 'Active (impulsion)');
+              } else if(row.name === 'PIN_OUT_LUMIERE'){
+                stateText = row.value ? 'Allumée' : 'Éteinte';
+              } else {
+                stateText = String(row.value);
+              }
+              tr.append($('<td>').text(stateText));
+              // Commande: gâche = bouton impulsion; lumière = toggle
+              let cmdCell = $('<td class="text-end">');
+              if(row.name === 'PIN_OUT_GACHE'){
+                cmdCell.append($('<button class="btn btn-sm btn-outline-primary me-2 btn-impulse-gache">Ouvrir</button>').attr('data-pin', row.pin));
+              } else if(row.name === 'PIN_OUT_LUMIERE'){
+                const sw = $('<div class="form-check form-switch d-inline-block">')
+                  .append($('<input type="checkbox" class="form-check-input out-toggle">').prop('checked', !!row.value).attr('data-pin', row.pin));
+                cmdCell.append(sw);
+              }
+              tr.append(cmdCell);
+              $outs.append(tr);
+            });
+          })
+          .catch(()=>{});
+      }
+
+      function startPolling(){
+        if(pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(loadIo, 1000);
+      }
+
       refreshUI();
       tryPing();
       loadMeta();
@@ -384,6 +474,12 @@
         const value = $(this).is(':checked');
         fetch('/api/debug/out', { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ pin, value }) })
           .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+      });
+
+      $(document).on('click', '.btn-impulse-gache', function(){
+        fetch('/api/door/open', { method:'POST', headers: authHeaders() })
+          .then(()=>{ log('Impulsion gâche envoyée'); setTimeout(loadIo, 250); })
+          .catch(()=>{});
       });
     </script>
   </body>
